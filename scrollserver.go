@@ -7,6 +7,7 @@ import (
 	"github.com/fogleman/gg"
 	"github.com/kellydunn/go-opc"
 	"github.com/lucasb-eyer/go-colorful"
+	"github.com/nfnt/resize"
 	"image"
 	"io/ioutil"
 	"log"
@@ -33,6 +34,7 @@ type Vertex struct {
 
 var color = Color{255, 0, 0}
 var home_c chan Scroller
+var dc gg.Context
 
 func randomFloat(min, max float64) float64 {
 	return rand.Float64()*(max-min) + min
@@ -53,7 +55,6 @@ func ledStrip(ledArray []Vertex, index, count int, x, y, spacing, angle float64,
 		}
 		ledArray[stripIndex] = Vertex{int(x + float64(i-(count-1.0)/2.0)*spacing*c + 0.5),
 			int(y + float64(i-(count-1.0)/2.0)*spacing*s + 0.5)}
-		//		fmt.Println(stripIndex, ledArray[index])
 
 	}
 }
@@ -83,7 +84,8 @@ func main() {
 	leds := make([]Vertex, *leds_len)
 	ledGrid(leds, 0, 15, 50, 400/2, 120/2, 120/15, 400/50, 1.5708, true)
 
-	go func() { LEDSender(home_c, *serverPtr, *leds_len, leds) }()
+	ticker := time.NewTicker(time.Millisecond * 20)
+	go func() { LEDSender(home_c, *serverPtr, *leds_len, leds, *ticker) }()
 
 	fs := http.FileServer(http.Dir("./static"))
 	http.Handle("/static/", http.StripPrefix("/static/", fs))
@@ -125,7 +127,7 @@ func UpdateHandler(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, "HomeHandler", ss.delay)
 }
 
-func LEDSender(c chan Scroller, server string, leds_len int, ledArray []Vertex) {
+func LEDSender(c chan Scroller, server string, leds_len int, ledArray []Vertex, ticker time.Ticker) {
 
 	props := Scroller{40, 7, false, Color{255, 0, 0}}
 	props.delay = 10
@@ -136,9 +138,18 @@ func LEDSender(c chan Scroller, server string, leds_len int, ledArray []Vertex) 
 	if err != nil {
 		log.Fatal("Could not connect to Fadecandy server", err)
 	}
-	for {
+	dc := gg.NewContext(int(Width), int(Height))
+	if err := dc.LoadFontFace("/Library/Fonts/Arial.ttf", 96); err != nil {
+		panic(err)
+	}
+	change := time.NewTicker(time.Second * 20)
+	effect := 0
+	loadImages()
 
-		im := nextFrame()
+	for t := range ticker.C {
+
+		im := nextFrame(*dc, effect)
+		//im := scrollText(*dc, "Merry Christmas")
 		m := opc.NewMessage(0)
 		m.SetLength(uint16(leds_len * 3))
 		for i := 0; i < leds_len; i++ {
@@ -147,15 +158,27 @@ func LEDSender(c chan Scroller, server string, leds_len int, ledArray []Vertex) 
 		}
 		err := oc.Send(m)
 		if err != nil {
-			log.Println("couldn't send color", err)
+			log.Println("couldn't send color", t, err)
 		}
-		time.Sleep(time.Duration(props.delay) * time.Millisecond)
 
 		// receive from channel
 		select {
 		case props = <-c:
+		case <-change.C:
+			effect++
+			if effect > 2 {
+				effect = 0
+			}
 		default:
-			//	}
+		}
+	}
+}
+
+func loadImages() {
+	for _, im := range imageList {
+
+		if pic, err := gg.LoadImage(im); err == nil {
+			images = append(images, resize.Resize(uint(Width), 0, pic, resize.NearestNeighbor))
 		}
 	}
 }
@@ -170,19 +193,53 @@ func (v1 *Vector) Add(v2 Vector) {
 	v1.Y += v2.Y
 }
 
-var Width, Height int = 400, 120
+var st time.Time = time.Now()
+var Width, Height float64 = 400, 120
 var dotCenter Vector = Vector{float64(Width / 2.0), float64(Height / 2.0)}
 var ps1 ParticleSystem = ParticleSystem{maxParticles: 50, Origin: Vector{float64(Width / 2), float64(10)}}
+var imageList []string = []string{
+	"glitter.png",
+}
+var images []image.Image
 
-func nextFrame() image.Image {
-	//	move := Vector{randomFloat(-4, 4), randomFloat(-4, 5)}
-	//	dotCenter.Add(move)
-	dc := gg.NewContext(Width, Height)
-	//	dc.DrawCircle(dotCenter.X, dotCenter.Y, 40)
+func nextFrame(dc gg.Context, effect int) image.Image {
+	switch effect {
+	case 0:
+		return scrollImage(dc, images[0])
+		//fallingBalls(dc)
+	case 1:
+		return scrollText(dc, "Ho, Ho, Ho - Merry Christmas!")
+	case 2:
+		return scrollImage(dc, images[0])
+	default:
+		dc.Clear()
+		return dc.Image()
+	}
+}
 
-	//	dc.SetColor(colorful.FastHappyColor())
-	//	dc.Fill()
+func scrollImage(dc gg.Context, image image.Image) image.Image {
 
+	y := int(float64(time.Since(st).Nanoseconds()/1000000)*-0.08) % int(image.Bounds().Size().Y)
+
+	dc.DrawImage(image, 0, y)
+	dc.DrawImage(image, 0, y+image.Bounds().Size().Y)
+	return dc.Image()
+}
+
+func scrollText(dc gg.Context, message string) image.Image {
+	dc.Clear()
+	dc.SetColor(colorful.FastHappyColor())
+	textWidth, _ := dc.MeasureString(message)
+	x := int(Width) + int(float64(time.Since(st).Nanoseconds()/1000000)*-0.08)%int(textWidth+Width)
+
+	dc.DrawStringAnchored(message, float64(x), float64(Height/2), 0.5, 0.5)
+	dc.DrawStringAnchored(message, textWidth+Width+float64(x), float64(Height/2), 0.5, 0.5)
+
+	return dc.Image()
+}
+
+func fallingBalls(dc gg.Context) image.Image {
+	dc.Clear()
 	ps1.addParticle()
 	ps1.run()
 	for _, p := range ps1.Particles {
@@ -216,11 +273,6 @@ func (ps *ParticleSystem) addParticle() {
 func (ps *ParticleSystem) run() {
 	for i, _ := range ps.Particles {
 		ps.Particles[i].update()
-		//	if int(ps.Particles[i].Location.X) > Width+10 || int(ps.Particles[i].Location.X) < -10 ||
-		//		int(ps.Particles[i].Location.Y) > Height+10 || int(ps.Particles[i].Location.Y) < -10 {
-		//		ps.Particles[len(ps.Particles)-1], ps.Particles[i] = ps.Particles[i], ps.Particles[len(ps.Particles)-1]
-		//		ps.Particles = ps.Particles[:len(ps.Particles)-1]
-		//	}
 	}
 }
 
