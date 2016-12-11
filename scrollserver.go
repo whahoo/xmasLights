@@ -17,22 +17,16 @@ import (
 	"time"
 )
 
-type Color struct {
-	R, G, B uint8
-}
-
 type Scroller struct {
-	delay, train_len int
-	random           bool
-	color            Color
+	train_len int
 }
 
 type Vertex struct {
 	X int
 	Y int
+	C colorful.Color
 }
 
-var color = Color{255, 0, 0}
 var home_c chan Scroller
 var dc gg.Context
 
@@ -54,7 +48,7 @@ func ledStrip(ledArray []Vertex, index, count int, x, y, spacing, angle float64,
 			stripIndex = index + count - 1 - i
 		}
 		ledArray[stripIndex] = Vertex{int(x + float64(i-(count-1.0)/2.0)*spacing*c + 0.5),
-			int(y + float64(i-(count-1.0)/2.0)*spacing*s + 0.5)}
+			int(y + float64(i-(count-1.0)/2.0)*spacing*s + 0.5), colorful.Color{0, 0, 0}}
 
 	}
 }
@@ -76,13 +70,13 @@ func main() {
 
 	serverPtr := flag.String("fcserver", "localhost:7890", "Fadecandy server and port to connect to")
 	listenPortPtr := flag.Int("port", 8080, "Port to serve UI from")
-	leds_len := flag.Int("leds", 750, "Number of LEDs in the string")
+	leds_len := flag.Int("leds", 52*15, "Number of LEDs in the string")
 	flag.Parse()
 
 	home_c = make(chan Scroller, 1)
 
 	leds := make([]Vertex, *leds_len)
-	ledGrid(leds, 0, 15, 50, 400/2, 120/2, 120/15, 400/50, 1.5708, true)
+	ledGrid(leds, 0, 15, 52, 400/2, 120/2, 120/15, 400/50, 1.5708, true)
 
 	ticker := time.NewTicker(time.Millisecond * 20)
 	go func() { LEDSender(home_c, *serverPtr, *leds_len, leds, *ticker) }()
@@ -107,13 +101,7 @@ func UpdateHandler(w http.ResponseWriter, r *http.Request) {
 
 	m := f.(map[string]interface{})
 
-	inscroll.delay = int(m["delay"].(float64))
 	inscroll.train_len = int(m["train_len"].(float64))
-	inscroll.random = bool(m["random"].(bool))
-	colormap := m["color"].(map[string]interface{})
-	inscroll.color.R = uint8(colormap["r"].(float64))
-	inscroll.color.G = uint8(colormap["g"].(float64))
-	inscroll.color.B = uint8(colormap["b"].(float64))
 
 	ss := inscroll
 
@@ -124,13 +112,13 @@ func UpdateHandler(w http.ResponseWriter, r *http.Request) {
 		log.Println("msg NOT sent")
 	}
 
-	fmt.Fprintf(w, "HomeHandler", ss.delay)
+	fmt.Fprintf(w, "HomeHandler", "100")
 }
 
 func LEDSender(c chan Scroller, server string, leds_len int, ledArray []Vertex, ticker time.Ticker) {
 
-	props := Scroller{40, 7, false, Color{255, 0, 0}}
-	props.delay = 10
+	//
+	//props := Scroller{40}
 
 	// Create a client
 	oc := opc.NewClient()
@@ -139,7 +127,7 @@ func LEDSender(c chan Scroller, server string, leds_len int, ledArray []Vertex, 
 		log.Fatal("Could not connect to Fadecandy server", err)
 	}
 	dc := gg.NewContext(int(Width), int(Height))
-	if err := dc.LoadFontFace("/Library/Fonts/Arial.ttf", 96); err != nil {
+	if err := dc.LoadFontFace("Arial.ttf", 96); err != nil {
 		panic(err)
 	}
 	change := time.NewTicker(time.Second * 20)
@@ -148,14 +136,20 @@ func LEDSender(c chan Scroller, server string, leds_len int, ledArray []Vertex, 
 
 	for t := range ticker.C {
 
-		im := nextFrame(*dc, effect)
-		//im := scrollText(*dc, "Merry Christmas")
+		im := nextFrame(*dc, effect, ledArray)
 		m := opc.NewMessage(0)
 		m.SetLength(uint16(leds_len * 3))
-		for i := 0; i < leds_len; i++ {
-			pixelRed, pixelGreen, pixelBlue, _ := im.At(ledArray[i].X, ledArray[i].Y).RGBA()
-			m.SetPixelColor(i, uint8(pixelRed), uint8(pixelGreen), uint8(pixelBlue))
+		if im != nil {
+			for i := 0; i < leds_len; i++ {
+				pixelRed, pixelGreen, pixelBlue, _ := im.At(ledArray[i].X, ledArray[i].Y).RGBA()
+				m.SetPixelColor(i, uint8(pixelRed), uint8(pixelGreen), uint8(pixelBlue))
+			}
+		} else {
+			for i := 0; i < leds_len; i++ {
+				m.SetPixelColor(i, uint8(ledArray[i].C.R*255), uint8(ledArray[i].C.G*255), uint8(ledArray[i].C.B*255))
+			}
 		}
+
 		err := oc.Send(m)
 		if err != nil {
 			log.Println("couldn't send color", t, err)
@@ -163,7 +157,7 @@ func LEDSender(c chan Scroller, server string, leds_len int, ledArray []Vertex, 
 
 		// receive from channel
 		select {
-		case props = <-c:
+		//case props = <-c:
 		case <-change.C:
 			effect++
 			if effect > 2 {
@@ -202,24 +196,71 @@ var imageList []string = []string{
 }
 var images []image.Image
 
-func nextFrame(dc gg.Context, effect int) image.Image {
+func nextFrame(dc gg.Context, effect int, leds []Vertex) image.Image {
 	switch effect {
 	case 0:
-		return scrollImage(dc, images[0])
-		//fallingBalls(dc)
+		rainbowFire(leds)
+		return nil
+		//return fallingBalls(dc)
 	case 1:
 		return scrollText(dc, "Ho, Ho, Ho - Merry Christmas!")
 	case 2:
 		return scrollImage(dc, images[0])
+	case 3:
+		rainbowFade(leds)
+		return nil
 	default:
 		dc.Clear()
 		return dc.Image()
 	}
 }
 
+var lastFrameTime int64 = time.Now().UnixNano()
+var initialHue byte = 0
+
+func rainbowFire(leds []Vertex) {
+	hue := float64(initialHue) //randomFloat(0, 360)
+	row := int(float64(time.Since(st).Nanoseconds()/1000000)*0.015) % 15
+	if row == 0 {
+		initialHue = random(0, 360)
+	}
+	//for row := 0; row < 15; row++ {
+	for i := 0; i < len(leds); i++ {
+		//oldPixel := leds[i].C
+		//oldHue, oldSat, oldBright := oldPixel.Hsv()
+		leds[i].C = leds[i].C.BlendHcl(colorful.Hcl(0, 0, 0), 0.1) //colorful.Hsv(oldHue, oldSat, oldBright/1.15)
+
+	}
+	for i := 0; i < len(leds)/60; i++ {
+		//	fmt.Println(i, i*60+row, i*60+29-row, i*60+30+row, i*60+59-row)
+		leds[(i*60)+row].C = colorful.Hcl(hue, 1, 1)
+		leds[(i*60)+29-row].C = colorful.Hcl(hue, 1, 1)
+		leds[(i*60)+30+row].C = colorful.Hcl(hue, 1, 1)
+		leds[(i*60)+59-row].C = colorful.Hcl(hue, 1, 1)
+	}
+}
+
+func rainbowFade(leds []Vertex) {
+	if time.Now().UnixNano()-lastFrameTime >= int64(20*time.Millisecond) {
+		initialHue++
+		lastFrameTime = time.Now().UnixNano()
+	}
+	// RAINBOW FADE!!!!!
+	hue := initialHue
+	val := 204.0 / 255.0
+	sat := 151.0 / 255.0
+	for i := 0; i < len(leds); i++ {
+		leds[i].C = colorful.Hsv(float64(hue&0xFF), sat, val)
+		hue += 1
+	}
+	if random(0, 255) < 80 {
+		leds[random(0, len(leds))].C = colorful.Hsv(0, 0, 255)
+	}
+}
+
 func scrollImage(dc gg.Context, image image.Image) image.Image {
 
-	y := int(float64(time.Since(st).Nanoseconds()/1000000)*-0.08) % int(image.Bounds().Size().Y)
+	y := int(float64(time.Since(st).Nanoseconds()/1000000)*-0.04) % int(image.Bounds().Size().Y)
 
 	dc.DrawImage(image, 0, y)
 	dc.DrawImage(image, 0, y+image.Bounds().Size().Y)
