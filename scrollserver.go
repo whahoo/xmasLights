@@ -219,6 +219,12 @@ func nextFrame(dc gg.Context, effect int, leds []Vertex) image.Image {
 	case 12:
 		xmasLights(leds)
 		return nil
+	case 13:
+		waveLights(leds)
+		return nil
+	case 14:
+		paigeLights(leds)
+		return nil
 	default:
 		dc.Clear()
 		return dc.Image()
@@ -284,6 +290,42 @@ func xmasLights(leds []Vertex) {
 		fade = 0
 	}
 	if pixelOffset == 4 {
+		pixelOffset = 0
+	}
+}
+
+//color(111,85, fade), color(141,81,fade), color(291,28,fade), color(321,39,fade)
+func paigeLights(leds []Vertex) {
+	colours := []colorful.Color{colorful.Hsv(111, 0.85, fade/255.0), colorful.Hsv(141.0, 0.81, fade/255.0), colorful.Hsv(291.0, .28, fade/255.0), colorful.Hsv(321.0, 0.39, fade/255)}
+	runPixels(pixelOffset, 15, colours, leds)
+
+	if fade == 0 {
+		pixelOffset++
+		fade = 255
+	} else {
+		fade -= 22
+	}
+	if fade < 20 {
+		fade = 0
+	}
+	if pixelOffset == 15 {
+		pixelOffset = 0
+	}
+}
+func waveLights(leds []Vertex) {
+	colours := []colorful.Color{colorful.Hsv(90, 0.85, fade/255.0), colorful.Hsv(100.0, 0.81, fade/255.0), colorful.Hsv(110.0, .28, fade/255.0), colorful.Hsv(120.0, 0.39, fade/255)}
+	runPixels(pixelOffset, 7, colours, leds)
+
+	if fade == 0 {
+		pixelOffset++
+		fade = 255
+	} else {
+		fade -= 22
+	}
+	if fade < 20 {
+		fade = 0
+	}
+	if pixelOffset == 15 {
 		pixelOffset = 0
 	}
 }
