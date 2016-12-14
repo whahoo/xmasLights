@@ -17,7 +17,6 @@ import (
 	"github.com/lucasb-eyer/go-colorful"
 	"github.com/nfnt/resize"
 	"github.com/whahoo/xmasLights/particles"
-	"github.com/whahoo/xmasLights/util"
 )
 
 type Scroller struct {
@@ -243,7 +242,7 @@ func redSparkles(leds []Vertex) {
 
 func sparkles(leds []Vertex, sparkle, background colorful.Color) {
 	for i := 0; i < len(leds); i++ {
-		if util.Random(1, 12) == 2 {
+		if rand.Intn(12) == 2 {
 			leds[i].C = sparkle
 		} else {
 			leds[i].C = leds[i].C.BlendHcl(background, 0.5).Clamped()
@@ -332,7 +331,7 @@ func rainbowFade(leds []Vertex) {
 		leds[i].C = colorful.Hsv(float64(hue&0xFF), sat, val)
 		hue += 1
 	}
-	if util.Random(0, 255) < 80 {
+	if rand.Intn(255) < 80 {
 		leds[rand.Intn(len(leds))].C = colorful.Hsv(0, 0, 1)
 	}
 }
