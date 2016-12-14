@@ -4,10 +4,6 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
-	"github.com/fogleman/gg"
-	"github.com/kellydunn/go-opc"
-	"github.com/lucasb-eyer/go-colorful"
-	"github.com/nfnt/resize"
 	"image"
 	"io/ioutil"
 	"log"
@@ -15,6 +11,13 @@ import (
 	"math/rand"
 	"net/http"
 	"time"
+
+	"github.com/fogleman/gg"
+	"github.com/kellydunn/go-opc"
+	"github.com/lucasb-eyer/go-colorful"
+	"github.com/nfnt/resize"
+	"github.com/whahoo/xmasLights/particles"
+	"github.com/whahoo/xmasLights/util"
 )
 
 type Scroller struct {
@@ -29,15 +32,6 @@ type Vertex struct {
 
 var home_c chan Scroller
 var dc gg.Context
-
-func randomFloat(min, max float64) float64 {
-	return rand.Float64()*(max-min) + min
-}
-
-func random(min, max int) uint8 {
-	xr := rand.Intn(max-min) + min
-	return uint8(xr)
-}
 
 func ledStrip(ledArray []Vertex, index, count int, x, y, spacing, angle float64, reversed bool) {
 	s := math.Sin(angle)
@@ -71,6 +65,7 @@ func main() {
 	serverPtr := flag.String("fcserver", "localhost:7890", "Fadecandy server and port to connect to")
 	listenPortPtr := flag.Int("port", 8080, "Port to serve UI from")
 	leds_len := flag.Int("leds", 52*15, "Number of LEDs in the string")
+
 	flag.Parse()
 
 	home_c = make(chan Scroller, 1)
@@ -160,7 +155,7 @@ func LEDSender(c chan Scroller, server string, leds_len int, ledArray []Vertex, 
 		//case props = <-c:
 		case <-change.C:
 			effect++
-			if effect > 2 {
+			if effect > 11 {
 				effect = 0
 			}
 		default:
@@ -182,15 +177,9 @@ type Vector struct {
 	Y float64
 }
 
-func (v1 *Vector) Add(v2 Vector) {
-	v1.X += v2.X
-	v1.Y += v2.Y
-}
-
 var st time.Time = time.Now()
 var Width, Height float64 = 400, 120
-var dotCenter Vector = Vector{float64(Width / 2.0), float64(Height / 2.0)}
-var ps1 ParticleSystem = ParticleSystem{maxParticles: 50, Origin: Vector{float64(Width / 2), float64(10)}}
+
 var imageList []string = []string{
 	"glitter.png",
 }
@@ -199,15 +188,37 @@ var images []image.Image
 func nextFrame(dc gg.Context, effect int, leds []Vertex) image.Image {
 	switch effect {
 	case 0:
-		rainbowFire(leds)
+		whiteSparkles(leds)
 		return nil
-		//return fallingBalls(dc)
 	case 1:
 		return scrollText(dc, "Ho, Ho, Ho - Merry Christmas!")
 	case 2:
 		return scrollImage(dc, images[0])
 	case 3:
 		rainbowFade(leds)
+		return nil
+	case 4:
+		return particles.FallingBalls(dc)
+	case 5:
+		rainbowFire(leds)
+		return nil
+	case 6:
+		redSparkles(leds)
+		return nil
+	case 7:
+		return particles.Snow(dc)
+	case 8:
+		goldSparkles(leds)
+		return nil
+	case 9:
+		return particles.ExpandingBalls(dc)
+	case 10:
+		return Triangles(dc)
+	case 11:
+		blues(leds)
+		return nil
+	case 12:
+		xmasLights(leds)
 		return nil
 	default:
 		dc.Clear()
@@ -217,26 +228,94 @@ func nextFrame(dc gg.Context, effect int, leds []Vertex) image.Image {
 
 var lastFrameTime int64 = time.Now().UnixNano()
 var initialHue byte = 0
+var row, lastrow int = 0, 0
+var rowcolor colorful.Color = colorful.Hcl(rand.Float64()*360.0, rand.Float64(), 0.6+rand.Float64()*0.4)
+
+func whiteSparkles(leds []Vertex) {
+	sparkles(leds, colorful.Color{1, 1, 1}, colorful.Color{0, 0, 0})
+}
+func goldSparkles(leds []Vertex) {
+	sparkles(leds, colorful.Color{238.0 / 255.0, 169.0 / 255.0, 0}, colorful.Color{0, 0, 0})
+}
+func redSparkles(leds []Vertex) {
+	sparkles(leds, colorful.Color{1, 0, 0}, colorful.Color{32.0 / 255.0, 165.0 / 255.0, 22.0 / 255.0})
+}
+
+func sparkles(leds []Vertex, sparkle, background colorful.Color) {
+	for i := 0; i < len(leds); i++ {
+		if util.Random(1, 12) == 2 {
+			leds[i].C = sparkle
+		} else {
+			leds[i].C = leds[i].C.BlendHcl(background, 0.5).Clamped()
+		}
+	}
+}
+
+var pixelOffset int = 0
+var fade float64 = 255
+
+func blues(leds []Vertex) {
+	colours := []colorful.Color{colorful.Hsv(250, 0.91, 0.99), colorful.Hsv(210.0, 0.91, 0.99), colorful.Hsv(210.0, 1, 1)}
+	runPixels(pixelOffset, 1, colours, leds)
+	if fade == 0 {
+		pixelOffset++
+		fade = 255
+	} else {
+		fade -= 18
+	}
+	if fade < 20 {
+		fade = 0
+	}
+	if pixelOffset == 2 {
+		pixelOffset = 0
+	}
+	leds[rand.Intn(len(leds))].C = colorful.Color{1, 1, 1}
+}
+func xmasLights(leds []Vertex) {
+	colours := []colorful.Color{colorful.Hsv(0, 1, fade/255.0), colorful.Hsv(120.0, 1, fade/255.0), colorful.Hsv(240.0, 1, fade/255.0)}
+	runPixels(pixelOffset, 4, colours, leds)
+
+	if fade == 0 {
+		pixelOffset++
+		fade = 255
+	} else {
+		fade -= 8
+	}
+	if fade < 20 {
+		fade = 0
+	}
+	if pixelOffset == 4 {
+		pixelOffset = 0
+	}
+}
+func runPixels(offset, jump int, colours []colorful.Color, leds []Vertex) {
+	l := 0
+	c := 0
+	for l = offset; l < len(leds); l = l + jump {
+		leds[l].C = colours[c]
+		c = c + 1
+		if c >= len(colours) {
+			c = 0
+		}
+	}
+}
 
 func rainbowFire(leds []Vertex) {
-	hue := float64(initialHue) //randomFloat(0, 360)
-	row := int(float64(time.Since(st).Nanoseconds()/1000000)*0.015) % 15
-	if row == 0 {
-		initialHue = random(0, 360)
+	lastrow = row
+	row = int(float64(time.Since(st).Nanoseconds()/1000000)*0.015) % 15
+	if row == 0 && lastrow != 0 {
+		rowcolor = colorful.Hcl(rand.Float64()*360.0, rand.Float64(), 0.6+rand.Float64()*0.4)
+		//fmt.Println(rowcolor)
 	}
-	//for row := 0; row < 15; row++ {
 	for i := 0; i < len(leds); i++ {
-		//oldPixel := leds[i].C
-		//oldHue, oldSat, oldBright := oldPixel.Hsv()
-		leds[i].C = leds[i].C.BlendHcl(colorful.Hcl(0, 0, 0), 0.1) //colorful.Hsv(oldHue, oldSat, oldBright/1.15)
+		leds[i].C = leds[i].C.BlendHcl(colorful.Hcl(0, 0, 0), 0.09).Clamped()
 
 	}
 	for i := 0; i < len(leds)/60; i++ {
-		//	fmt.Println(i, i*60+row, i*60+29-row, i*60+30+row, i*60+59-row)
-		leds[(i*60)+row].C = colorful.Hcl(hue, 1, 1)
-		leds[(i*60)+29-row].C = colorful.Hcl(hue, 1, 1)
-		leds[(i*60)+30+row].C = colorful.Hcl(hue, 1, 1)
-		leds[(i*60)+59-row].C = colorful.Hcl(hue, 1, 1)
+		leds[(i*60)+row].C = rowcolor
+		leds[(i*60)+29-row].C = rowcolor
+		leds[(i*60)+30+row].C = rowcolor
+		leds[(i*60)+59-row].C = rowcolor
 	}
 }
 
@@ -253,8 +332,8 @@ func rainbowFade(leds []Vertex) {
 		leds[i].C = colorful.Hsv(float64(hue&0xFF), sat, val)
 		hue += 1
 	}
-	if random(0, 255) < 80 {
-		leds[random(0, len(leds))].C = colorful.Hsv(0, 0, 255)
+	if util.Random(0, 255) < 80 {
+		leds[rand.Intn(len(leds))].C = colorful.Hsv(0, 0, 1)
 	}
 }
 
@@ -279,51 +358,40 @@ func scrollText(dc gg.Context, message string) image.Image {
 	return dc.Image()
 }
 
-func fallingBalls(dc gg.Context) image.Image {
+func Triangles(dc gg.Context) image.Image {
 	dc.Clear()
-	ps1.addParticle()
-	ps1.run()
-	for _, p := range ps1.Particles {
-		dc.DrawCircle(p.Location.X, p.Location.Y, p.size)
-		dc.SetColor(p.color)
+	dc.SetHexColor("000")
+	dc.Clear()
+	n := 5
+	points := Polygon(n)
+	const S = 80
+	for x := S / 2; x < dc.Width(); x += S {
+		dc.Push()
+		s := rand.Float64()*S/4 + S/4
+		dc.Translate(float64(x), float64(dc.Height()/2))
+		dc.Rotate(rand.Float64() * 2 * math.Pi)
+		dc.Scale(s, s)
+		for i := 0; i < n+1; i++ {
+			index := (i * 2) % n
+			p := points[index]
+			dc.LineTo(p.X, p.Y)
+		}
+		dc.SetLineWidth(10)
+		dc.SetHexColor("#FFCC00")
+		dc.StrokePreserve()
+		dc.SetHexColor("#FFE43A")
 		dc.Fill()
+		dc.Pop()
 	}
+
 	return dc.Image()
-}
 
-type ParticleSystem struct {
-	Origin       Vector
-	Particles    []Particle
-	maxParticles int
 }
-
-func (ps *ParticleSystem) addParticle() {
-	if len(ps.Particles) > ps.maxParticles {
-		ps.Particles = ps.Particles[1:]
+func Polygon(n int) []Vector {
+	result := make([]Vector, n)
+	for i := 0; i < n; i++ {
+		a := float64(i)*2*math.Pi/float64(n) - math.Pi/2
+		result[i] = Vector{math.Cos(a), math.Sin(a)}
 	}
-	p := Particle{
-		ps.Origin,
-		Vector{randomFloat(-5, 5), randomFloat(-5, 5)},
-		Vector{0, randomFloat(0.01, 0.12)},
-		colorful.Hcl(rand.Float64()*360.0, rand.Float64(), 0.6+rand.Float64()*0.4),
-		8,
-		255,
-	}
-	ps.Particles = append(ps.Particles, p)
-}
-func (ps *ParticleSystem) run() {
-	for i, _ := range ps.Particles {
-		ps.Particles[i].update()
-	}
-}
-
-type Particle struct {
-	Location, Velocity, Acceleration Vector
-	color                            colorful.Color
-	size, lifespan                   float64
-}
-
-func (p *Particle) update() {
-	p.Velocity.Add(p.Acceleration)
-	p.Location.Add(p.Velocity)
+	return result
 }
