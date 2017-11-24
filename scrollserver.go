@@ -20,7 +20,7 @@ import (
 )
 
 type Scroller struct {
-	train_len int
+	text string
 }
 
 type Vertex struct {
@@ -95,8 +95,7 @@ func UpdateHandler(w http.ResponseWriter, r *http.Request) {
 
 	m := f.(map[string]interface{})
 
-	inscroll.train_len = int(m["train_len"].(float64))
-
+	inscroll.text = string(m["text"].(string))
 	ss := inscroll
 
 	//send on the home channel, nonblocking
@@ -112,8 +111,9 @@ func UpdateHandler(w http.ResponseWriter, r *http.Request) {
 func LEDSender(c chan Scroller, server string, leds_len int, ledArray []Vertex, ticker time.Ticker) {
 
 	//
-	//props := Scroller{40}
-
+	props := Scroller{text: "Ok"}
+	text := "Ho, Ho, Ho - Merry Christmas!!"
+	timer1 := time.NewTimer(1)
 	// Create a client
 	oc := opc.NewClient()
 	err := oc.Connect("tcp", server)
@@ -130,7 +130,7 @@ func LEDSender(c chan Scroller, server string, leds_len int, ledArray []Vertex, 
 
 	for t := range ticker.C {
 
-		im := nextFrame(*dc, effect, ledArray)
+		im := nextFrame(*dc, effect, ledArray, text)
 		m := opc.NewMessage(0)
 		m.SetLength(uint16(leds_len * 3))
 		if im != nil {
@@ -151,12 +151,19 @@ func LEDSender(c chan Scroller, server string, leds_len int, ledArray []Vertex, 
 
 		// receive from channel
 		select {
-		//case props = <-c:
+		case props = <-c:
+			change.Stop()
+			text = props.text
+			timer1 = time.NewTimer(time.Second * 20)
+			effect = 1
 		case <-change.C:
 			effect++
-			if effect > 11 {
+			if effect > 17 {
 				effect = 0
 			}
+		case <-timer1.C:
+			change = time.NewTicker(time.Second * 20)
+			text = "Ho, Ho, Ho - Merry Christmas!!"
 		default:
 		}
 	}
@@ -181,16 +188,21 @@ var Width, Height float64 = 400, 120
 
 var imageList []string = []string{
 	"glitter.png",
+	"bubbles.png",
+	"color2.png",
+	"redChristmasTree.png",
+	"greenSnowFlakes.png",
 }
 var images []image.Image
 
-func nextFrame(dc gg.Context, effect int, leds []Vertex) image.Image {
+func nextFrame(dc gg.Context, effect int, leds []Vertex, text string) image.Image {
 	switch effect {
 	case 0:
 		whiteSparkles(leds)
 		return nil
+
 	case 1:
-		return scrollText(dc, "Ho, Ho, Ho - Merry Christmas!")
+		return scrollText(dc, text) //"Ho, Ho, Ho - Merry Christmas!")
 	case 2:
 		return scrollImage(dc, images[0])
 	case 3:
@@ -225,6 +237,12 @@ func nextFrame(dc gg.Context, effect int, leds []Vertex) image.Image {
 	case 14:
 		paigeLights(leds)
 		return nil
+	case 15:
+		return scrollImage(dc, images[1])
+	case 16:
+		return scrollImage(dc, images[2])
+	case 17:
+		return scrollImage(dc, images[3])
 	default:
 		dc.Clear()
 		return dc.Image()
@@ -388,8 +406,14 @@ func scrollImage(dc gg.Context, image image.Image) image.Image {
 }
 
 func scrollText(dc gg.Context, message string) image.Image {
+	lastrow = row
+	row = int(float64(time.Since(st).Nanoseconds()/1000000)*0.015) % 15
+	if row == 0 && lastrow != 0 {
+		rowcolor = colorful.FastHappyColor()
+	}
+
 	dc.Clear()
-	dc.SetColor(colorful.FastHappyColor())
+	dc.SetColor(rowcolor)
 	textWidth, _ := dc.MeasureString(message)
 	x := int(Width) + int(float64(time.Since(st).Nanoseconds()/1000000)*-0.08)%int(textWidth+Width)
 
@@ -408,9 +432,9 @@ func Triangles(dc gg.Context) image.Image {
 	const S = 80
 	for x := S / 2; x < dc.Width(); x += S {
 		dc.Push()
-		s := rand.Float64()*S/4 + S/4
+		s := (float64(int(float64(time.Since(st).Nanoseconds()/1000000)*-0.5)%75)/75+1)*S/4 + S/4
 		dc.Translate(float64(x), float64(dc.Height()/2))
-		dc.Rotate(rand.Float64() * 2 * math.Pi)
+		dc.Rotate(float64(int(float64(time.Since(st).Nanoseconds()/1000000)*-0.1)%360) / 360 * 2 * math.Pi)
 		dc.Scale(s, s)
 		for i := 0; i < n+1; i++ {
 			index := (i * 2) % n
